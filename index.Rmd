@@ -1,0 +1,135 @@
+---
+title: "Tarea4Rm"
+author: "Armando Picado Monge"
+date: "12/7/2021"
+output: html_document
+---
+## Visualización del conjunto de datos de orquideas muestreadas en las áreas de conservación protegidas de Costa Rica  
+  
+Para el siguien trabajo, se está utilizando datos de diferentes especies de orquideas muestreadas a lo largo y ancho del país, el fin de la actividad recae en realizar un mapa interactivo donde se refleje estas en las áreas silvestres protegidas. Para lograr el cometido anterior, de limpiaron los datos a manera que la incertidumbre a la hora de levantameinto de datos no fuera tan elevada, ademas no se consideró datos sin nombre en su especie y así mismo, tampoco se tomó en cuenta las áreas silvestres protegidas marítimas.  
+```{r carga-librerias, message=FALSE}
+##Carga de librerias
+library(sf)
+library(raster)
+library(dplyr)
+library(rmapshaper)
+library(leaflet)
+library(leaflet.extras)
+```
+
+```{r datos-a-utilizar, message=FALSE}
+##Conjunto de datos a utilizar
+Porquideas <- st_read("https://raw.githubusercontent.com/gf0604-procesamientodatosgeograficos/2021i-datos/main/gbif/orchidaceae-cr-registros.csv",
+        options = c( "X_POSSIBLE_NAMES=decimalLongitude",
+                     "Y_POSSIBLE_NAMES=decimalLatitude"
+        )
+        ,quiet = TRUE)
+st_crs(Porquideas) = 4326
+
+ASprotegidas <- st_read("https://raw.githubusercontent.com/gf0604-procesamientodatosgeograficos/2021i-datos/main/sinac/asp/asp-wgs84.geojson",
+                        quiet = TRUE)
+st_crs(ASprotegidas) = 4326
+#Visualizacion de datos de Porquideas sin modificación
+sapply(Porquideas, mode)
+```
+
+```{r pasar-de-NA-a-valor-0}
+#Agregar valor de O a NA en coordinateUncertaintyInMeters
+Porquideas$coordinateUncertaintyInMeters[Porquideas$coordinateUncertaintyInMeters == ""] <- "0"
+
+Porquideas <-
+  Porquideas %>%
+  mutate(coordinateUncertaintyInMeters = as.numeric(coordinateUncertaintyInMeters)) %>%
+  mutate(eventDate = as.Date(eventDate, "%Y-%m-%d"))
+
+#Visualización de datos de orquídeas con modificación
+sapply(Porquideas, mode)
+```
+
+```{r Delimitación-de-datos-a-incertidumbre>=1000}
+#Delimitación de los registros de presencia a valores menores de 100 en la insertidumbre a la hora de toma de los datos
+Porquideas <-
+  Porquideas %>%
+  filter(!is.na(coordinateUncertaintyInMeters) & coordinateUncertaintyInMeters <= 1000)
+
+#Eliminación de filas donde estén presentes NA's en la columna de especies
+Porquideas <- Porquideas %>%
+  filter(!is.na(species) & species != "")
+
+#Eliminación de filas par las areas silvestres protegidas donde la descripción del dato fuera en area marina
+ASprotegidas <- ASprotegidas %>%
+  filter(descripcio != "Area Marina de Manejo") %>%
+  filter(descripcio != "Area marina protegida")
+
+```
+
+```{r datos-generados-para-interpretación, message=FALSE}
+RPAS <- st_intersection(Porquideas, ASprotegidas)
+
+ASp_especies <- 
+  ASprotegidas %>%
+  st_join(Porquideas) %>%
+  group_by(nombre_asp) %>%
+  summarize(especies = n_distinct(species, na.rm = TRUE)) %>%
+  rename(Areasconservacion = nombre_asp)
+```
+
+Para finalizar, se realizó un mapa mostrando los resultados obtenidos de la manipulación y limpieza realizada anteriormente.
+
+```{r mapa}
+#Generación del mapa
+
+# Paleta de colores
+colores_especies <-
+  colorNumeric(palette = "PuRd",
+               domain = ASp_especies$especies,
+               na.color = "transparent")
+
+leaflet() %>%
+  addTiles(group = "OSM") %>%
+  addProviderTiles(providers$CartoDB.DarkMatter, group = "CartoDB.DarkMatter") %>%
+  addPolygons(
+    data = ASprotegidas,
+    fillColor = ~ colores_especies(ASp_especies$especies),
+    stroke = TRUE,
+    color = "white",
+    fillOpacity = 0.8,
+    weight = 1,
+    popup = paste(
+      paste(
+        "<strong>Area de conservación:</strong>",
+        ASp_especies$Areasconservacion
+      ),
+      paste(
+        "<strong>Cantidad de especies:</strong>",
+        ASp_especies$especies
+        
+      ),
+      sep = '<br/>'
+    ),
+    group = "Areas silvestres protegidas") %>%
+  addCircleMarkers(
+    data = RPAS,
+    stroke = F,
+    radius = 2,
+    fillColor = "#f44611",
+    fillOpacity = 1,
+    popup = paste(
+      RPAS$species,
+      RPAS$stateProvince,
+      RPAS$eventDate,
+      sep = '<br/>'
+    ),
+    group = "Registros de orquideas"
+  ) %>%
+  addLayersControl(baseGroups = c("CartoDB.DarkMatter","OSM"),
+                   overlayGroups = c("Registros de orquideas", "Areas silvestres protegidas")) %>%
+  addLegend(
+    position = "bottomleft",
+    pal = colores_especies,
+    values = ASp_especies$especies,
+    group = "Areas silvestres protegidas",
+    title = "Cantidad de especies"
+  )
+```
+

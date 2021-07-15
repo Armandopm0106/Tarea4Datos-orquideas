@@ -56,7 +56,7 @@ Porquideas <-
 Porquideas <- Porquideas %>%
   filter(!is.na(species) & species != "")
 
-#Eliminación de filas par las areas silvestres protegidas donde la descripción del dato fuera en area marina
+#Eliminación de filas par las areas silvestres protegidas donde la descripción del dato no fuera en area marina
 ASprotegidas <- ASprotegidas %>%
   filter(descripcio != "Area Marina de Manejo") %>%
   filter(descripcio != "Area marina protegida")
@@ -89,7 +89,7 @@ leaflet() %>%
   addTiles(group = "OSM") %>%
   addProviderTiles(providers$CartoDB.DarkMatter, group = "CartoDB.DarkMatter") %>%
   addPolygons(
-    data = ASprotegidas,
+    data = ASp_especies,
     fillColor = ~ colores_especies(ASp_especies$especies),
     stroke = TRUE,
     color = "white",
